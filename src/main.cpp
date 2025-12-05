@@ -126,6 +126,30 @@ String sendCommand(const String& cmd, const char* expectedResponse, unsigned lon
 }
 #endif
 
+
+//função Blink - Erro crítico de hardware
+void fatalHardwareError() {
+  Serial.println("\n ERRO CRITICO DE HARDWARE ");
+  while (true) {
+    digitalWrite(RED_LED_PIN, HIGH);
+    delay(150);
+    digitalWrite(RED_LED_PIN, LOW);
+    delay(150);
+  }
+}
+
+//função Blink - Erro crítico de conexão
+void fatalConnectionError() {
+  Serial.println("\n!!! ERRO CRITICO DE CONEXAO !!!");
+  Serial.println("O sistema nao pode se comunicar. Verifique o modem, SIM card e antena.");
+  while (true) {
+    digitalWrite(BLUE_LED_PIN, HIGH);
+    delay(150);
+    digitalWrite(BLUE_LED_PIN, LOW);
+    delay(150);
+  }
+}
+
 // Função de feedback do teclado e gerenciamento do teclado
 
 void beepKeyPress() {
@@ -419,12 +443,19 @@ void manageMcpSensors() { // Menager dos sensores ligados ao MCP
 void setup() {
     Serial.begin(115200);
     cameraSerial.begin(115200, SERIAL_8N1, 16, 17);
-    Serial.println("\n TCC Yan Kumara - Firmware v4.0 - Com Expansor do Teclado Matricial");
+    Serial.println("\n TCC Yan Kumara - Firmware v5.0 - Diagnóstico blink");
     
+
+    pinMode(RED_LED_PIN, OUTPUT);
+    pinMode(BLUE_LED_PIN, OUTPUT);
+    digitalWrite(RED_LED_PIN, LOW);
+    digitalWrite(BLUE_LED_PIN, LOW);
+
     Wire.begin(); 
     if (!mcp1.begin_I2C(MCP1_ADDRESS)) {
       Serial.println("ERRO: Nao foi possivel encontrar o MCP23017 no endereco 0x20. Travando.");
       while (1);
+      fatalHardwareError(); // Chama a função de erro de hardware
     }
     Serial.println("MCP23017 #1 (0x20) encontrado!");
     
@@ -453,13 +484,31 @@ void setup() {
       MODEM_SERIAL.begin(115200, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
       Serial.println("Aguardando 10 segundos para o modem iniciar...");
       delay(10000);
-      if (connectToNetwork()) { connectMqtt(); }
+
+      // Verifica se o modem responde
+      if (sendCommand("AT", "OK", 2000).indexOf("OK") == -1) {
+        Serial.println("ERRO: Modem nao responde aos comandos AT.");
+        fatalConnectionError(); // Chama a função de erro de conexão
+      }
+      Serial.println("Modem OK!");
+
+      // Tenta conectar à rede
+      if (!connectToNetwork()) {
+        Serial.println("ERRO: Nao foi possivel se registrar na rede celular.");
+        fatalConnectionError();
+      }
+      
+      // Tenta conectar ao MQTT
+      if (!connectMqtt()) {
+        Serial.println("ERRO: Nao foi possivel conectar ao broker MQTT.");
+        fatalConnectionError();
+      }
+
     #endif
    
-    pinMode(RED_LED_PIN, OUTPUT);
-    pinMode(BLUE_LED_PIN, OUTPUT);
     Serial.println("Calibrando sensores... Aguarde 15 segundos.");
     delay(15000);
+    updateStatusLEDs(); // Liga o LED vermelho para indicar "desarmado"
     Serial.println("Sistema pronto.");
 }
 
